@@ -8,16 +8,26 @@ const Product = require("../models/product.model")
 router.get("",  (req, res) => {
 
     redis.get("products", async function(err, prods) {
+
+        const page = +req.query.page || 1
+        const size = +req.query.size || 2
+
+        const skip = (page - 1) * size
         
         if(err) { console.log(err) }
 
-        if(prods) {return res.status(200).send(JSON.parse(prods))}
+        if(prods) {
+            return res.status(200).send(JSON.parse(prods))
+        }
 
-        const products = await Product.find().lean().exec();
+        const products = await Product.find().skip(skip).limit(size).lean().exec();
 
+        const totalPages = Math.ceil(
+            (await Product.find().countDocuments()) / size
+        )
 
           redis.set("products", JSON.stringify(products));
-        return res.status(200).send(products)
+        return res.status(200).send({products, totalPages})
     })
 })
 
@@ -25,6 +35,9 @@ router.get("",  (req, res) => {
 router.post("", async (req, res) => {
     
     const product = await Product.create(req.body)
+
+    redis.set(`products.${product._id}`, JSON.stringify(product))
+
     const products = await Product.find().lean().exec()
 
     redis.set("products", JSON.stringify(products))
@@ -63,7 +76,18 @@ router.patch("/:id", async (req, res) => {
 })
 
 
+router.delete("/:id" , async (req, res) => {
+    const product = await Product.findByIdAndDelete(req.params.id)
 
+    redis.del(`products.${req.params.id}`);
+
+    const products = await Product.find().lean().exec()
+
+    redis.set("products", JSON.stringify(products))
+
+    return res.status(201).send(product)
+
+})
 
 
 
